@@ -1,2 +1,3 @@
 # easymacros
-A thing to make macros easily. Inspired by how vim macros work.
+
+This program is inspired by xmacro, however it isn't xmacro. This project is not using X directly, but evde

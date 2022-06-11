@@ -1,0 +1,11 @@
+[package]
+name = "easymacros"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+x11 = { version = "2.19.1", features = ["xlib", "xtest"] }
+x11-keysymdef = "0.2.0"
+clap = { version = "3.1.18", features = ["derive"] }
