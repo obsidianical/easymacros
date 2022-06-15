@@ -10,6 +10,7 @@ use clap::Parser;
 use x11::keysym::{XK_d, XK_Super_L};
 use x11::xtest::{XTestFakeButtonEvent, XTestFakeKeyEvent, XTestFakeMotionEvent, XTestGrabControl, XTestQueryExtension};
 use x11_keysymdef::lookup_by_name;
+use easymacros::x11_safe_wrapper::XDisplay;
 
 /// Macro program inspired by xmacro.
 #[derive(Parser, Debug)]
@@ -18,57 +19,36 @@ struct Args {
     /// Display
     #[clap(short, long)]
     display: String,
+    /// xmacro compatibility
+    #[clap(long)]
+    xmacro: bool,
 }
 
 fn main () {
     let args = Args::parse();
+    let xmacro_mode = args.xmacro;
 
-    let display = get_remote(args.display);
+    let display = get_remote(None);
 
-    let super_l_str_ptr = b"Super_L\0".as_ptr();
-    let super_l_sym = unsafe { XStringToKeysym(super_l_str_ptr as *const i8) };
-    let super_l_code = unsafe { XKeysymToKeycode(display, super_l_sym) };
+    display.send_fake_keypress_from_string(b"Super_L\0");
+    display.send_fake_keypress_from_string(b"d\0");
+    display.send_fake_keyrelease_from_string(b"d\0");
+    display.send_fake_keyrelease_from_string(b"Super_L\0");
 
-    let d_str_ptr = b"d\0".as_ptr();
-    let d_sym = unsafe { XStringToKeysym(d_str_ptr as *const i8) };
-    let d_code = unsafe { XKeysymToKeycode(display, d_sym) };
-
-    unsafe {
-        XTestFakeKeyEvent(display, super_l_code as c_uint, c_int::from(true), 10);
-        XFlush(display);
-        XTestFakeKeyEvent(display, d_code as c_uint, c_int::from(true), 10);
-        XFlush(display);
-
-        XTestFakeKeyEvent(display, d_code as c_uint, c_int::from(false), 10);
-        XFlush(display);
-        XTestFakeKeyEvent(display, super_l_code as c_uint, c_int::from(false), 10);
-        XFlush(display);
-
-        XCloseDisplay(display);
-    }
-
-    println!("play: {}", add(5, 10));
+    display.close();
 }
 
-fn get_remote(dpy_name: String) -> *mut Display {
-    let dpy_name = CString::new(dpy_name).unwrap();
-    let display_ptr: *const u8 = dpy_name.as_bytes().as_ptr();
-    let display = unsafe { XOpenDisplay(display_ptr as *const i8) };
+fn get_remote(display_name: Option<String>) -> XDisplay {
+    let display = XDisplay::open(display_name);
 
-    let mut ev = c_int::default();
-    let mut err = c_int::default();
-    let mut version = (c_int::default(), c_int::default());
-
-    if unsafe { XTestQueryExtension(display, &mut ev, &mut err, &mut version.0, &mut version.1) } == 0 {
+    if !display.has_xtest() {
         eprintln!("XTest not supported!");
-        unsafe { XCloseDisplay(display) };
+        display.close();
         exit(1)
     }
 
-    unsafe {
-        XTestGrabControl(display, c_int::from(true));
-        XSync(display, c_int::from(false));
-    };
+    display.grab_control();
+    display.sync();
 
     display
 }
