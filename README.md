@@ -45,3 +45,7 @@ I may or may not do these, but they sound fun to implement to me!
 - [ ] Linux Wayland (makes heavy use of X apis, I will only do this if I myself switch to Wayland. I'm open to suggestions how to do it though!)
 - [ ] MacOS (Might work because of XQuartz?)
 - [ ] Windows (Yeah, I'm not doing that myself. Unless I have to use Windows for anything.)
+
+## Installation
+
+Currently only manually possible via `cargo build --release` and then moving the result into your $PATH.
