@@ -2,15 +2,21 @@ extern crate core;
 
 pub mod x11_safe_wrapper;
 
-pub fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
+pub enum XMacroInstructions {
+    Delay,
+    ButtonPress,
+    ButtonRelease,
+    MotionNotify,
+    KeyCodePress,
+    KeyCodeRelease,
+    // Screenshot,
+    KeySymPress,
+    KeySymRelease,
+    KeySym,
+    KeyStrPress,
+    KeyStrRelease,
+    KeyStr,
+    String,
+    // ExecBlock,
+    // ExecNoBlock,
 }

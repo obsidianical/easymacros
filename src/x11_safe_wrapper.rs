@@ -2,14 +2,14 @@ use std::env;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong};
 use x11::xlib::{Display, XCloseDisplay, XFlush, XKeysymToKeycode, XOpenDisplay, XStringToKeysym, XSync};
-use x11::xtest::{XTestFakeKeyEvent, XTestGrabControl, XTestQueryExtension};
+use x11::xtest::{XTestFakeButtonEvent, XTestFakeKeyEvent, XTestFakeMotionEvent, XTestGrabControl, XTestQueryExtension};
 
 pub struct XDisplay {
 	ptr: *mut Display,
 }
 
-type Keysym = c_ulong;
-type Keycode = c_uint;
+pub type Keysym = c_ulong;
+pub type Keycode = c_uint;
 
 const FALSE_C: c_int = 0;
 const TRUE_C: c_int = 1;
@@ -70,6 +70,14 @@ impl XDisplay {
 		self.flush();
 	}
 
+	pub fn send_fake_buttonpress(&self, button: u32) {
+		unsafe { XTestFakeButtonEvent(self.ptr, button, TRUE_C, 10) };
+	}
+
+	pub fn send_fake_buttonrelease(&self, button: u32) {
+		unsafe { XTestFakeButtonEvent(self.ptr, button, FALSE_C, 10) };
+	}
+
 	pub fn send_fake_keyrelease_from_string(&self, string: &[u8]) {
 		self.send_fake_keyrelease_from_keysym(string_to_keysym(string))
 	}
@@ -80,6 +88,11 @@ impl XDisplay {
 
 	pub fn send_fake_keyrelease_from_code(&self, code: Keycode) {
 		unsafe { XTestFakeKeyEvent(self.ptr, code, FALSE_C, 10) };
+		self.flush();
+	}
+
+	pub fn send_fake_motion_event(&self, x: c_int, y: c_int) {
+		unsafe { XTestFakeMotionEvent(self.ptr, -1, x, y, 10)};
 		self.flush();
 	}
 
