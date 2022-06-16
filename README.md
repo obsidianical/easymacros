@@ -22,8 +22,8 @@ Note: This program is for personal use. I will modify it as I deem necessary, bu
 I may or may not do these, but they sound fun to implement to me!
 
 - [ ] additional macro features
-  - relative cursor movements
-  - screenshotting whole/parts ot the screen (using external programs)
+  - [ ] relative cursor movements
+  - [ ] screenshotting whole/parts ot the screen (using external programs)
 - [ ] Macro daemon kind of thing to listen in the background for keyboard shortcuts?
   - [ ] the daemon itself
   - [ ] config file
