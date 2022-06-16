@@ -1,9 +1,8 @@
 use std::env;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_uint, c_ulong};
-use x11::xlib::{
-    Display, XCloseDisplay, XFlush, XKeysymToKeycode, XOpenDisplay, XStringToKeysym, XSync,
-};
+use x11::xlib::{Display, GenericEvent, Time, Window, XAllowEvents, XAnyEvent, XCloseDisplay, XDefaultScreen, XEvent, XFlush, XGrabKeyboard, XKeyEvent, XKeysymToKeycode, XOpenDisplay, XRootWindow, XStringToKeysym, XSync, XUngrabKeyboard, XUngrabPointer, XWindowEvent};
+use x11::xrecord::XRecordQueryVersion;
 use x11::xtest::{
     XTestFakeButtonEvent, XTestFakeKeyEvent, XTestFakeMotionEvent, XTestGrabControl,
     XTestQueryExtension,
@@ -49,6 +48,14 @@ impl XDisplay {
         }
     }
 
+    pub fn get_default_screen(&self) -> c_int {
+        unsafe { XDefaultScreen(self.ptr) }
+    }
+
+    pub fn get_root_window(&self, screen_nr: c_int) -> Window {
+        unsafe { XRootWindow(self.ptr, screen_nr) }
+    }
+
     pub fn keysym_to_keycode(&self, keysym: c_ulong) -> Keycode {
         unsafe { XKeysymToKeycode(self.ptr, keysym) as Keycode }
     }
@@ -57,6 +64,7 @@ impl XDisplay {
         self.keysym_to_keycode(string_to_keysym(string))
     }
 
+    // XTest stuff
     pub fn has_xtest(&self) -> bool {
         let mut vals: (c_int, c_int, c_int, c_int) = (0, 0, 0, 0);
         let has_extension = unsafe {
@@ -99,7 +107,7 @@ impl XDisplay {
         self.flush();
     }
 
-    pub fn send_fake_motion_event(&self, x: c_int, y: c_int) {
+    pub fn send_fake_motion_event(&self, x: i32, y: i32) {
         unsafe { XTestFakeMotionEvent(self.ptr, -1, x, y, 10) };
         self.flush();
     }
@@ -109,6 +117,45 @@ impl XDisplay {
             XTestGrabControl(self.ptr, TRUE_C);
         }
     }
+
+    pub fn allow_events(&self, event_mode: i32, time: Time) {
+        unsafe { XAllowEvents(self.ptr, event_mode, time) };
+    }
+
+    pub fn grab_keyboard(&self, window: u64, owner_events: bool, pointer_mode: i32, keyboard_mode: i32, time: Time) -> i32 {
+        unsafe { XGrabKeyboard(
+			self.ptr,
+			window,
+			c_int::from(owner_events),
+			pointer_mode,
+			keyboard_mode,
+			time
+		)}
+    }
+
+    pub fn ungrab_keyboard(&self, time: Time) {
+        unsafe { XUngrabKeyboard(self.ptr, time) };
+    }
+
+    pub fn ungrab_pointer(&self, time: Time) {
+        unsafe { XUngrabPointer(self.ptr, time) };
+    }
+    pub fn window_event(&self, window: Window, event_mask: i64) -> XEvent {
+        // maybe dirty hack to initialize the event var?? idk how else to do this
+        let mut r: XEvent = XEvent { type_: GenericEvent };
+
+        unsafe { XWindowEvent(self.ptr, window, event_mask, &mut r); }
+
+        r
+    }
+
+    // XRecord stuff
+    pub fn has_xrecord(&self) -> bool {
+        let mut xrecord_version: (c_int, c_int) = (0, 0);
+        let xrec_res = unsafe { XRecordQueryVersion(self.ptr, &mut xrecord_version.0, &mut xrecord_version.1) };
+        xrec_res == 0
+    }
+
 }
 
 /// Wrapper for XStringToKeysym. Remember to give a null terminated string!
