@@ -1,10 +1,12 @@
 use std::os::raw::{c_char, c_uint};
 use std::process::{exit, ExitCode};
+use std::ptr::addr_of;
+use std::thread;
 use clap::Parser;
 use x11::keysym::XK_Escape;
 use x11::xinput2::XIGrabModeSync;
 use x11::xlib::{CurrentTime, GrabModeAsync, GrabModeSync, GrabSuccess, KeyCode, KeyPress, KeyPressMask, SyncPointer, XEvent, XPointer};
-use x11::xrecord::{XRecordEndOfData, XRecordInterceptData, XRecordStartOfData};
+use x11::xrecord::{XRecordCreateContext, XRecordEndOfData, XRecordInterceptData, XRecordStartOfData};
 use easymacros::x11_safe_wrapper::{Keycode, XDisplay};
 
 /// Macro recording module for easymacros. Outputs are partially compatible with xmacro.
@@ -23,12 +25,15 @@ fn main() {
 
 	let display = XDisplay::open(args.display);
 
-	let stop_key = get_stop_key(display);
+	let stop_key = get_stop_key(&display);
 
+	let screen = display.get_default_screen();
 	dbg!(stop_key);
+
+	ev_loop(display, screen, stop_key);
 }
 
-fn get_stop_key(display: XDisplay) -> Keycode {
+fn get_stop_key(display: &XDisplay) -> Keycode {
 	let screen = display.get_default_screen();
 
 	let root = display.get_root_window(screen);
@@ -63,20 +68,38 @@ fn get_stop_key(display: XDisplay) -> Keycode {
 
 fn ev_loop(display: XDisplay, screen: i32, stop_key: Keycode) {
 	let root = display.get_root_window(screen);
+
+	let mut ev_cb_data = EvCallbackData { stop_key, nr_evs: 0, working: true};
+	display.create_record_context();
+	display.enable_context_async(Some(ev_callback), addr_of!(ev_cb_data) as *mut c_char);
+
+	while ev_cb_data.working {
+		display.process_replies();
+		thread::sleep(std::time::Duration::from_millis(100))
+	}
 }
 
-struct EvCallbackData {
-	stop_key: Keycode,
-	x: i32,
-	y: i32,
+#[repr(C)]
+pub struct EvCallbackData {
+	pub stop_key: Keycode,
+	pub nr_evs: u32,
+	pub working: bool,
+	// x: i32,
+	// y: i32,
 }
+
 
 unsafe extern "C" fn ev_callback(closure: *mut c_char, intercept_data: *mut XRecordInterceptData) {
+	println!("Got event!!!");
+
 	let data = &mut *(closure as *mut EvCallbackData);
 	let intercept_data = &mut *intercept_data;
 
 	if intercept_data.category == XRecordStartOfData { println!("Got start of data!"); }
 	else if intercept_data.category == XRecordEndOfData { println!("Got end of data!");}
-
-
+	data.nr_evs += 1;
+	print!("nr: {}", data.nr_evs);
+	if data.nr_evs >= 10 {
+		data.working = false;
+	}
 }
