@@ -1,17 +1,17 @@
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::env;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong};
 use x11::xlib::{Display, GenericEvent, KeyPress, MotionNotify, Time, Window, XAllowEvents, XAnyEvent, XCloseDisplay, XDefaultScreen, XEvent, XFlush, XGrabKeyboard, XKeyEvent, XKeysymToKeycode, XOpenDisplay, XRootWindow, XStringToKeysym, XSync, XUngrabKeyboard, XUngrabPointer, XWindowEvent};
-use x11::xrecord::{XRecordAllClients, XRecordAllocRange, XRecordClientInfo, XRecordClientSpec, XRecordContext, XRecordCreateContext, XRecordEnableContextAsync, XRecordInterceptData, XRecordProcessReplies, XRecordQueryVersion};
+use x11::xrecord::{XRecordAllClients, XRecordAllocRange, XRecordClientInfo, XRecordClientSpec, XRecordContext, XRecordCreateContext, XRecordDisableContext, XRecordEnableContext, XRecordEnableContextAsync, XRecordFreeContext, XRecordInterceptData, XRecordProcessReplies, XRecordQueryVersion};
 use x11::xtest::{
 	XTestFakeButtonEvent, XTestFakeKeyEvent, XTestFakeMotionEvent, XTestGrabControl,
 	XTestQueryExtension,
 };
 
+#[derive(Debug, Clone, Copy)]
 pub struct XDisplay {
 	ptr: *mut Display,
-	xrecordctx: RefCell<Option<XRecordContext>>,
 }
 
 pub type Keysym = c_ulong;
@@ -30,10 +30,7 @@ impl XDisplay {
 		let name_ptr = name.as_bytes().as_ptr();
 		let display_ptr = unsafe { XOpenDisplay(name_ptr as *const i8) };
 
-		Self {
-			ptr: display_ptr,
-			xrecordctx: RefCell::new(None),
-        }
+		Self { ptr: display_ptr }
 	}
 
 	pub fn close(self) {
@@ -162,11 +159,7 @@ impl XDisplay {
 		xrec_res == 0
 	}
 
-	pub fn create_record_context(&self) {
-		if self.xrecordctx.borrow().is_some() {
-			panic!("Tried to create xrecord context with one already present");
-		}
-
+	pub fn create_record_context(&self) -> XRecordContext {
 		let mut protocol_ranges = unsafe { XRecordAllocRange() };
 		unsafe {
 			(*protocol_ranges).device_events.first = KeyPress as c_uchar;
@@ -184,22 +177,40 @@ impl XDisplay {
                 1
             )
         };
-        self.xrecordctx.replace(Some(ctx));
+		ctx
+	}
+
+	pub fn enable_context(&self,
+						  ctx: XRecordContext,
+						  cb:Option<unsafe extern "C" fn(_: *mut c_char, _: *mut XRecordInterceptData)>,
+						  closure: *mut c_char
+	) {
+		unsafe {
+			XRecordEnableContext( self.ptr, ctx, cb, closure as *mut c_char );
+		}
 	}
 
     pub fn enable_context_async(&self,
+								ctx: XRecordContext,
                                 cb: Option<unsafe extern "C" fn(_: *mut c_char, _: *mut XRecordInterceptData)>,
                                 closure: *mut c_char,
     ) {
         unsafe {
-            XRecordEnableContextAsync(
-                self.ptr,
-                self.xrecordctx.borrow_mut().unwrap(),
-                cb,
-                closure as *mut c_char
-            )
-        };
+            XRecordEnableContextAsync( self.ptr, ctx, cb, closure as *mut c_char );
+        }
     }
+
+	pub fn disable_context(&self, ctx: XRecordContext) -> bool {
+		unsafe {
+			XRecordDisableContext( self.ptr, ctx ) != 0
+		}
+	}
+
+	pub fn free_context(&self, ctx: XRecordContext) -> bool {
+		unsafe {
+			XRecordFreeContext( self.ptr, ctx) != 0
+		}
+	}
 
     pub fn process_replies(&self) {
         unsafe { XRecordProcessReplies(self.ptr) };

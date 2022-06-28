@@ -1,12 +1,12 @@
-use std::os::raw::{c_char, c_uint};
+use std::os::raw::{c_char, c_uchar, c_uint};
 use std::process::{exit, ExitCode};
-use std::ptr::addr_of;
-use std::thread;
+use std::ptr::{addr_of, slice_from_raw_parts};
+use std::{slice, thread};
 use clap::Parser;
 use x11::keysym::XK_Escape;
 use x11::xinput2::XIGrabModeSync;
-use x11::xlib::{CurrentTime, GrabModeAsync, GrabModeSync, GrabSuccess, KeyCode, KeyPress, KeyPressMask, SyncPointer, XEvent, XPointer};
-use x11::xrecord::{XRecordCreateContext, XRecordEndOfData, XRecordInterceptData, XRecordStartOfData};
+use x11::xlib::{CurrentTime, GrabModeAsync, GrabModeSync, GrabSuccess, KeyCode, KeyPress, KeyPressMask, SyncPointer, XEvent, XFree, XKeyEvent, XKeyPressedEvent, XPointer};
+use x11::xrecord::{XRecordContext, XRecordCreateContext, XRecordDisableContext, XRecordEndOfData, XRecordFreeData, XRecordInterceptData, XRecordStartOfData};
 use easymacros::x11_safe_wrapper::{Keycode, XDisplay};
 
 /// Macro recording module for easymacros. Outputs are partially compatible with xmacro.
@@ -23,17 +23,19 @@ struct Args {
 fn main() {
 	let args = Args::parse();
 
-	let display = XDisplay::open(args.display);
+	let display = XDisplay::open(args.display.clone());
+	let recorded_display = XDisplay::open(args.display.clone());
 
-	let stop_key = get_stop_key(&display);
+	let stop_key = get_stop_key(display);
 
 	let screen = display.get_default_screen();
 	dbg!(stop_key);
 
-	ev_loop(display, screen, stop_key);
+	ev_loop(display, recorded_display, screen, stop_key);
+	display.close();
 }
 
-fn get_stop_key(display: &XDisplay) -> Keycode {
+fn get_stop_key(display: XDisplay) -> Keycode {
 	let screen = display.get_default_screen();
 
 	let root = display.get_root_window(screen);
@@ -66,24 +68,37 @@ fn get_stop_key(display: &XDisplay) -> Keycode {
 	stop_key
 }
 
-fn ev_loop(display: XDisplay, screen: i32, stop_key: Keycode) {
+fn ev_loop(display: XDisplay, recordeddpy: XDisplay, screen: i32, stop_key: Keycode) {
 	let root = display.get_root_window(screen);
 
-	let mut ev_cb_data = EvCallbackData { stop_key, nr_evs: 0, working: true};
-	display.create_record_context();
-	display.enable_context_async(Some(ev_callback), addr_of!(ev_cb_data) as *mut c_char);
+	let ctx = recordeddpy.create_record_context();
+	let ev_cb_data = EvCallbackData {
+		xdpy: display,
+		recdpy: recordeddpy,
+		ctx,
+		stop_key,
+		nr_evs: 0,
+		working: true
+	};
 
+	recordeddpy.enable_context_async(ctx, Some(ev_callback), addr_of!(ev_cb_data) as *mut c_char);
 	while ev_cb_data.working {
-		display.process_replies();
-		thread::sleep(std::time::Duration::from_millis(100))
+		recordeddpy.process_replies();
 	}
+
+	display.disable_context(ctx);
+	display.free_context(ctx);
 }
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct EvCallbackData {
+	pub xdpy: XDisplay,
+	pub recdpy: XDisplay,
 	pub stop_key: Keycode,
 	pub nr_evs: u32,
 	pub working: bool,
+	pub ctx: XRecordContext,
 	// x: i32,
 	// y: i32,
 }
@@ -95,11 +110,34 @@ unsafe extern "C" fn ev_callback(closure: *mut c_char, intercept_data: *mut XRec
 	let data = &mut *(closure as *mut EvCallbackData);
 	let intercept_data = &mut *intercept_data;
 
-	if intercept_data.category == XRecordStartOfData { println!("Got start of data!"); }
-	else if intercept_data.category == XRecordEndOfData { println!("Got end of data!");}
-	data.nr_evs += 1;
-	print!("nr: {}", data.nr_evs);
-	if data.nr_evs >= 10 {
-		data.working = false;
+	if intercept_data.category == XRecordStartOfData {
+		println!("Got start of data!");
+		return;
+	} else if intercept_data.category == XRecordEndOfData {
+		println!("Got end of data!");
+		return;
 	}
+	data.nr_evs += 1;
+	println!("nr: {:?}, len: {:?}", data, intercept_data.len);
+	let s: &[i32] = unsafe {
+		slice::from_raw_parts(intercept_data.data as *const i32, 4)
+	};
+	let ev = unsafe { slice::from_raw_parts(intercept_data.data as *const u8, 2) };
+	println!("data: {:?}", s);
+	let x: XKeyPressedEvent;
+
+	if ev[0] == KeyPress {
+		if ev[1] == data.stop_key as i32 {
+			println!("stop key detected!");
+			// if !data.xdpy.disable_context() {
+			// 	println!("failed to disable context");
+			// }
+			// let res = data.xdpy.disable_context(data.ctx);
+			// println!("disabling context: {:?}", res);
+			data.working = false;
+			return;
+		}
+	}
+
+	XRecordFreeData(intercept_data)
 }
