@@ -2,8 +2,8 @@ use std::cell::{Ref, RefCell};
 use std::env;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong};
-use x11::xlib::{Display, GenericEvent, KeyPress, MotionNotify, Time, Window, XAllowEvents, XAnyEvent, XCloseDisplay, XDefaultScreen, XEvent, XFlush, XGrabKeyboard, XKeyEvent, XKeysymToKeycode, XOpenDisplay, XRootWindow, XStringToKeysym, XSync, XUngrabKeyboard, XUngrabPointer, XWindowEvent};
-use x11::xrecord::{XRecordAllClients, XRecordAllocRange, XRecordClientInfo, XRecordClientSpec, XRecordContext, XRecordCreateContext, XRecordDisableContext, XRecordEnableContext, XRecordEnableContextAsync, XRecordFreeContext, XRecordInterceptData, XRecordProcessReplies, XRecordQueryVersion};
+use x11::xlib::{Display, GenericEvent, KeyCode, KeyPress, MotionNotify, Status, Time, Window, XAllowEvents, XAnyEvent, XCloseDisplay, XDefaultScreen, XEvent, XFlush, XGrabKeyboard, XKeycodeToKeysym, XKeyEvent, XKeysymToKeycode, XKeysymToString, XOpenDisplay, XRootWindow, XStringToKeysym, XSync, XUngrabKeyboard, XUngrabPointer, XWindowEvent};
+use x11::xrecord::{XRecordAllClients, XRecordAllocRange, XRecordClientInfo, XRecordClientSpec, XRecordContext, XRecordCreateContext, XRecordDisableContext, XRecordEnableContext, XRecordEnableContextAsync, XRecordFreeContext, XRecordInterceptData, XRecordProcessReplies, XRecordQueryVersion, XRecordRange};
 use x11::xtest::{
 	XTestFakeButtonEvent, XTestFakeKeyEvent, XTestFakeMotionEvent, XTestGrabControl,
 	XTestQueryExtension,
@@ -57,12 +57,22 @@ impl XDisplay {
 		unsafe { XRootWindow(self.ptr, screen_nr) }
 	}
 
-	pub fn keysym_to_keycode(&self, keysym: c_ulong) -> Keycode {
+	pub fn keysym_to_keycode(&self, keysym: Keysym) -> Keycode {
 		unsafe { XKeysymToKeycode(self.ptr, keysym) as Keycode }
 	}
 
 	pub fn string_to_keycode(&self, string: &[u8]) -> Keycode {
 		self.keysym_to_keycode(string_to_keysym(string))
+	}
+
+	pub fn keycode_to_keysym(&self, keycode: Keycode) -> Keysym {
+		unsafe {
+			XKeycodeToKeysym(self.ptr, keycode as c_uchar, 0)
+		}
+	}
+
+	pub fn keycode_to_string(&self, keycode: Keycode) -> CString {
+		keysym_to_string(self.keycode_to_keysym(keycode))
 	}
 
 	// XTest stuff
@@ -159,8 +169,7 @@ impl XDisplay {
 		xrec_res == 0
 	}
 
-	pub fn create_record_context(&self) -> XRecordContext {
-		let mut protocol_ranges = unsafe { XRecordAllocRange() };
+	pub fn create_record_context(&self, mut protocol_ranges: *mut XRecordRange) -> XRecordContext {
 		unsafe {
 			(*protocol_ranges).device_events.first = KeyPress as c_uchar;
 			(*protocol_ranges).device_events.last = MotionNotify as c_uchar;
@@ -184,19 +193,19 @@ impl XDisplay {
 						  ctx: XRecordContext,
 						  cb:Option<unsafe extern "C" fn(_: *mut c_char, _: *mut XRecordInterceptData)>,
 						  closure: *mut c_char
-	) {
+	) -> bool {
 		unsafe {
-			XRecordEnableContext( self.ptr, ctx, cb, closure as *mut c_char );
+			XRecordEnableContext( self.ptr, ctx, cb, closure as *mut c_char ) != 0
 		}
 	}
 
     pub fn enable_context_async(&self,
 								ctx: XRecordContext,
-                                cb: Option<unsafe extern "C" fn(_: *mut c_char, _: *mut XRecordInterceptData)>,
-                                closure: *mut c_char,
-    ) {
+								cb: Option<unsafe extern "C" fn(_: *mut c_char, _: *mut XRecordInterceptData)>,
+								closure: *mut c_char,
+    ) -> bool {
         unsafe {
-            XRecordEnableContextAsync( self.ptr, ctx, cb, closure as *mut c_char );
+            XRecordEnableContextAsync( self.ptr, ctx, cb, closure as *mut c_char ) != 0
         }
     }
 
@@ -220,4 +229,14 @@ impl XDisplay {
 /// Wrapper for XStringToKeysym. Remember to give a null terminated string!
 pub fn string_to_keysym(string: &[u8]) -> Keysym {
 	unsafe { XStringToKeysym(string.as_ptr() as *const c_char) }
+}
+pub fn keysym_to_string(keysym: Keysym) -> CString {
+	unsafe {
+		let raw = XKeysymToString(keysym);
+		dbg!(raw);
+		let r = CString::from_raw(raw);
+		r
+	}
+		// .into_string()
+		// .expect("failed to convert CString into Rust String")
 }
